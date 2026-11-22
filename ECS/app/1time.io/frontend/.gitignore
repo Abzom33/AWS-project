@@ -1,7 +1,0 @@
-node_modules
-build
-.astro
-.env
-.env.*
-!.env.example
-.DS_Store
