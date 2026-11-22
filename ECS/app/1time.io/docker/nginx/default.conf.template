@@ -1,0 +1,139 @@
+# Written at container start by /docker-entrypoint.d/30-1time-config.sh.
+include /etc/nginx/1time/real-ip.conf;
+include /etc/nginx/1time/limit-zones.conf;
+
+server {
+    listen       ${NGINX_PORT};
+    server_name  _;
+
+    root   /usr/share/nginx/html;
+    index  index.html;
+    client_max_body_size 100m;
+
+    charset utf-8;
+
+    # Applies to every location without its own add_header; those that have
+    # one include the snippet again.
+    include /etc/nginx/snippets/1time/security-headers.conf;
+
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 256;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        text/xml
+        application/javascript
+        application/json
+        application/xml
+        application/rss+xml
+        image/svg+xml;
+
+    error_page 404 /404.html;
+
+    location = /404.html {
+        internal;
+    }
+
+    location = /manifest.webmanifest {
+        default_type application/manifest+json;
+        try_files $uri =404;
+    }
+
+    location ^~ /_astro/ {
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        include /etc/nginx/snippets/1time/security-headers.conf;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location ~* \.(?:woff2|woff|ttf|otf|eot)$ {
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000";
+        include /etc/nginx/snippets/1time/security-headers.conf;
+        access_log off;
+        try_files $uri =404;
+    }
+
+    location = /api/saveSecret {
+        include /etc/nginx/1time/limit-write.conf;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location = /api/get {
+        include /etc/nginx/1time/limit-read.conf;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location = /api/saveFile {
+        include /etc/nginx/1time/limit-upload.conf;
+        client_body_timeout 10m;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location = /api/getFile {
+        include /etc/nginx/1time/limit-read.conf;
+        send_timeout 10m;
+        proxy_read_timeout 10m;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location = /api/stat {
+        include /etc/nginx/1time/limit-stats.conf;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /api/ {
+        include /etc/nginx/1time/limit-read.conf;
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # Name the file: `$uri/` redirects internally into `location /`, which drops these headers.
+    location = /v/ {
+        include /etc/nginx/snippets/1time/security-headers-sensitive.conf;
+        try_files /v/index.html =404;
+    }
+
+    location = /f/ {
+        include /etc/nginx/snippets/1time/security-headers-sensitive.conf;
+        try_files /f/index.html =404;
+    }
+
+    location / {
+        try_files $uri $uri/ $uri/index.html =404;
+    }
+}

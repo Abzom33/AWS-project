@@ -1,0 +1,58 @@
+## Development: build from source
+## Usage:
+##   docker compose -f docker-compose.dev.yml up -d --build
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --save
+      - "60"
+      - "1"
+      - --appendonly
+      - "no"
+      - --dir
+      - /data
+      - --dbfilename
+      - dump.rdb
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    environment:
+      LISTEN_ADDR: 0.0.0.0:8080
+      REDISHOST: redis:6379
+      REDISPASS: ""
+      FILE_STORAGE_DIR: /data/files
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    depends_on:
+      - redis
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        SELF_HOSTED: ${SELF_HOSTED:-true}
+    restart: unless-stopped
+    environment:
+      NGINX_PORT: 8080
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-backend:8080}
+      # Empty values fall back to the defaults in docker/nginx/30-1time-config.sh.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      REAL_IP_HEADER: ${REAL_IP_HEADER:-}
+      RATE_LIMIT: ${RATE_LIMIT:-}
+      RATE_LIMIT_WRITE: ${RATE_LIMIT_WRITE:-}
+      RATE_LIMIT_UPLOAD: ${RATE_LIMIT_UPLOAD:-}
+      RATE_LIMIT_READ: ${RATE_LIMIT_READ:-}
+    depends_on:
+      - backend
+    ports:
+      - "${APP_PORT:-8080}:8080"

@@ -1,0 +1,252 @@
+.file-drop-zone {
+  width: 100%;
+  margin-top: 24px;
+  padding: 48px 20px;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  background: var(--surface);
+  border: 2px dashed #D6D3D1;
+  border-radius: var(--radius);
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.file-drop-zone:hover,
+.file-drop-zone:focus-visible,
+.file-drop-zone-active {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-drop-title,
+.file-drop-hint {
+  display: block;
+}
+
+.file-drop-title {
+  margin-top: 14px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.file-browse {
+  padding: 12px 20px;
+  font-size: 17px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.file-drop-zone:hover .file-browse,
+.file-drop-zone:focus-visible .file-browse {
+  background: var(--accent-hover);
+}
+
+.file-drop-hint {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.file-state {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.file-selection-card .file-state-selected {
+  gap: 12px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+}
+
+.file-state .file-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border-radius: 13px;
+}
+
+.file-state-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-state-title {
+  display: block;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-state-selected .file-icon {
+  width: 28px;
+  height: 32px;
+  color: var(--text-secondary);
+  background: transparent;
+  border-radius: 0;
+}
+
+.file-state-selected .file-state-title {
+  font-size: 15px;
+}
+
+.file-state-selected .file-state-meta {
+  margin-top: 2px;
+  font-size: 14px;
+}
+
+.file-state-meta {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.file-state-error {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.file-state-error .file-icon {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.file-state-error .file-state-title {
+  overflow: visible;
+  color: var(--accent-hover);
+  white-space: normal;
+}
+
+.file-state-error .file-state-meta {
+  color: var(--accent);
+}
+
+.file-remove {
+  flex-shrink: 0;
+  margin-left: auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  font-size: 22px;
+}
+
+.file-selection-card [data-file-add] {
+  min-height: 44px;
+  margin: 0 0 4px 2px;
+}
+
+.file-list-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  padding: 4px 12px 8px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-list-head .form-help {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.file-list {
+  max-height: 352px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-choose-another {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.file-progress {
+  margin-top: 24px;
+  padding: 16px;
+  background: #F0FDF4;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.file-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-progress-label {
+  margin: 0;
+}
+
+.file-progress-value {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.file-progress-track {
+  height: 10px;
+  margin-top: 10px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.file-progress-fill {
+  height: 100%;
+  background: var(--success);
+  transition: width 160ms linear;
+}
+
+.file-progress-track-indeterminate .file-progress-fill {
+  width: 42%;
+  animation: file-progress-slide 1.15s ease-in-out infinite;
+}
+
+@keyframes file-progress-slide {
+  0% {
+    transform: translateX(-85%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@media (max-width: 480px) {
+  .file-drop-zone {
+    margin-top: 18px;
+    padding: 26px 16px;
+  }
+
+  .file-selected-panel {
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+
+  .file-state-error {
+    flex-wrap: wrap;
+  }
+
+  .file-choose-another {
+    width: 100%;
+    margin-left: 0;
+  }
+}

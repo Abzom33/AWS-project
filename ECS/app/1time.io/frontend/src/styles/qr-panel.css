@@ -1,0 +1,21 @@
+/* Loaded with the QR generator after the user asks to see it. */
+.qr-panel {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.qr-panel-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.qr-panel-code svg {
+  display: block;
+  width: min(220px, 100%);
+  height: auto;
+}

@@ -1,0 +1,428 @@
+/* Route switcher */
+.share-mode-nav {
+  display: flex;
+  gap: 0;
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.share-mode-link {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  font-size: clamp(13px, 3.5vw, 14px);
+  font-weight: 500;
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: background var(--transition), color var(--transition);
+}
+
+.share-mode-link:hover {
+  color: var(--text);
+}
+
+.share-mode-link-active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.share-flow-page:has(.link-display) .share-mode-nav,
+.share-flow-page:has(.link-display) .whats-new,
+.share-flow-page:has(.link-display) .seo-section {
+  display: none;
+}
+
+.form-help-error {
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.share-title {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.share-options-panel {
+  --share-accent-ring: rgba(194, 65, 12, 0.15);
+  margin-top: 24px;
+}
+
+.share-settings-card {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+
+.share-settings-card .secret-textarea {
+  display: block;
+  min-height: 190px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  resize: none;
+}
+
+.share-settings-card .secret-textarea:focus {
+  box-shadow: none;
+}
+
+.share-settings-card:has(.secret-textarea:focus) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--share-accent-ring);
+}
+
+.share-settings-card:focus-within {
+  border-color: var(--text-muted);
+  box-shadow: 0 0 0 3px var(--border);
+}
+
+.share-options-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.share-options-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  column-gap: 24px;
+  min-height: 44px;
+}
+
+.share-option-field,
+.share-passphrase-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--text-secondary);
+}
+
+.share-option-field {
+  cursor: pointer;
+}
+
+.share-option-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.share-option-field:hover,
+.share-option-field:focus-within,
+.share-passphrase-add:hover,
+.share-passphrase-add:focus-visible {
+  color: var(--accent);
+}
+
+.share-option-select {
+  field-sizing: content;
+  width: auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+
+.share-option-select:focus {
+  box-shadow: none;
+}
+
+.share-option-select:focus-visible,
+.share-passphrase-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.share-passphrase-add {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.share-passphrase-add span {
+  padding-bottom: 2px;
+  border-bottom: 1px dotted currentColor;
+}
+
+.share-passphrase-add:focus-visible {
+  border-radius: 2px;
+}
+
+.share-passphrase-field {
+  display: block;
+  height: 46px;
+}
+
+.share-passphrase-field .form-input {
+  height: 46px;
+}
+
+.share-passphrase-field .form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--share-accent-ring);
+}
+
+.share-submit {
+  min-width: 0;
+}
+
+.share-submit > .btn {
+  width: 100%;
+  min-height: 46px;
+  font-weight: 700;
+}
+
+@media (min-width: 640px) {
+  .share-options-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 32%);
+    column-gap: 24px;
+  }
+
+  .share-passphrase-field {
+    grid-column: 1 / -1;
+  }
+
+  .share-options-line {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+
+  .share-submit {
+    grid-column: 2;
+  }
+}
+
+.share-form-error {
+  margin-top: 12px;
+}
+
+.share-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 0;
+  font-size: 14px;
+}
+
+.share-note svg {
+  flex-shrink: 0;
+  color: var(--success);
+}
+
+@media (max-width: 480px) {
+  .share-title {
+    font-size: 25px;
+  }
+
+  .share-options-panel {
+    margin-top: 18px;
+  }
+
+  .share-settings-card .secret-textarea {
+    height: 116px;
+    min-height: 116px;
+  }
+
+  .share-options-line {
+    column-gap: 12px;
+  }
+
+  .share-option-field,
+  .share-passphrase-add {
+    gap: 4px;
+  }
+
+  .share-option-select {
+    font-size: 15px;
+  }
+
+  .share-passphrase-field,
+  .share-passphrase-field .form-input {
+    height: 44px;
+  }
+
+  .share-passphrase-add {
+    font-size: 15px;
+  }
+
+  .share-option-icon {
+    width: 17px;
+    height: 17px;
+  }
+}
+
+@supports not (field-sizing: content) {
+  .share-option-field-duration .share-option-select {
+    width: 7ch;
+  }
+
+  .share-option-field-usage .share-option-select {
+    width: 11ch;
+  }
+
+  @media (max-width: 480px) {
+    .share-option-field-duration .share-option-select {
+      width: 5.5ch;
+    }
+
+    .share-option-field-usage .share-option-select {
+      width: 10ch;
+    }
+  }
+}
+
+/* SEO section */
+.seo-section {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.seo-section h1,
+.seo-section h2 {
+  font-size: 24px;
+  margin-bottom: 16px;
+}
+
+.seo-section h3 {
+  font-size: 18px;
+  margin: 24px 0 8px;
+}
+
+.seo-section p {
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin: 24px 0;
+}
+
+@media (min-width: 480px) {
+  .features-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.feature-card {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--transition);
+}
+
+.feature-card-link {
+  display: block;
+  text-decoration: none;
+}
+
+.feature-card:hover {
+  border-color: var(--text-muted);
+}
+
+.feature-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.feature-card-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.feature-card h2,
+.features-grid .feature-card h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.feature-card p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.seo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.seo-nav a {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color var(--transition), color var(--transition);
+}
+
+.seo-nav a:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.glossary {
+  margin: 16px 0 24px;
+}
+
+.glossary dt {
+  font-weight: 600;
+  margin-top: 14px;
+}
+
+.glossary dt:first-child {
+  margin-top: 0;
+}
+
+.glossary dd {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}

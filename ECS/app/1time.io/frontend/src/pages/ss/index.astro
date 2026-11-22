@@ -1,0 +1,47 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import InlineCss from '../../components/InlineCss.astro';
+import {siteHost} from '../../lib/siteConfig.js';
+
+const title = `In-Memory Stats — ${siteHost}`;
+const description = `Current in-memory stats snapshot for ${siteHost}.`;
+---
+<BaseLayout
+    title={title}
+    description={description}
+    robots="noindex, nofollow"
+>
+    <InlineCss slot="head" name="stats" />
+
+    <div class="stats-page" id="stats-page">
+        <div class="stats-header">
+            <h1>In-Memory Stats</h1>
+            <span class="stats-status stats-status-loading" data-stat-status>loading</span>
+        </div>
+
+        <div class="stats-grid">
+            <section class="stats-card">
+                <span class="stats-label">Shared texts</span>
+                <strong class="stats-value" data-stat-secrets>0</strong>
+            </section>
+            <section class="stats-card">
+                <span class="stats-label">Shared files</span>
+                <strong class="stats-value" data-stat-files>0</strong>
+            </section>
+            <section class="stats-card">
+                <span class="stats-label">API version</span>
+                <strong class="stats-value" data-stat-apiversion>&mdash;</strong>
+            </section>
+            <section class="stats-card">
+                <span class="stats-label">Save schemes</span>
+                <strong class="stats-value" data-stat-schemes>&mdash;</strong>
+            </section>
+        </div>
+
+        <p>Backend <code data-stat-version>&mdash;</code>, started <span data-stat-started>&mdash;</span></p>
+    </div>
+
+    <script>
+        import '../../islands/stats-snapshot.ts';
+    </script>
+</BaseLayout>

@@ -1,0 +1,166 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import InlineCss from '../../components/InlineCss.astro';
+import {siteHost} from '../../lib/siteConfig.js';
+
+const title = `View Secret Message — ${siteHost}`;
+const description = 'Open an encrypted secret link shared through 1time.io. The secret is decrypted in your browser and destroyed once its allowed views are used.';
+---
+<BaseLayout
+    title={title}
+    description={description}
+    canonical="/v/"
+    ogImage="/1time-og-v.png"
+    ogImageAlt={`${siteHost} encrypted secret link`}
+    robots="noindex, nofollow"
+>
+    <InlineCss slot="head" name="view" />
+    <InlineCss slot="head" name="view-secret" />
+    <InlineCss slot="head" name="qr-panel" />
+
+    <div>
+        <form id="view-secret-form" autocomplete="off">
+            <div class="alert alert-warning" data-wrong-key hidden>
+                Wrong passphrase. Please try again.
+            </div>
+
+            <div class="form-field" data-state="passphrase" hidden>
+                <label class="form-label" for="secretKey">Passphrase required</label>
+                <input
+                    autofocus
+                    class="form-input"
+                    id="secretKey"
+                    autocomplete="off"
+                    autocapitalize="none"
+                    placeholder="Enter the passphrase from the sender"
+                    spellcheck="false"
+                    type="text"
+                />
+            </div>
+
+            <div data-state="pre-read">
+                <div class="confirm-gate">
+                    <div class="confirm-gate-icon" aria-hidden="true">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            <circle cx="12" cy="16" r="1"/>
+                        </svg>
+                    </div>
+                    <h2 class="confirm-gate-title">Someone sent you a secret</h2>
+                    <p class="confirm-gate-desc">
+                        This is a <strong>self-destructing link</strong>. The number of views is limited.
+                    </p>
+                    <button class="btn btn-success btn-lg" type="submit" data-reveal>Reveal the secret</button>
+                </div>
+            </div>
+
+            <div data-qr-action>
+                <div class="view-secondary-actions">
+                    <button class="btn btn-secondary btn-lg" type="button" data-toggle-qr>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M3 3h6v6H3z"/>
+                            <path d="M15 3h6v6h-6z"/>
+                            <path d="M3 15h6v6H3z"/>
+                            <path d="M15 15h3"/>
+                            <path d="M18 12v3"/>
+                            <path d="M21 15v6"/>
+                            <path d="M15 21h3"/>
+                            <path d="M21 21h.01"/>
+                        </svg>
+                        <span data-qr-label>Show QR code</span>
+                    </button>
+                </div>
+                <section class="qr-panel" data-qr-panel hidden aria-live="polite">
+                    <p class="qr-panel-title">Scan from another device</p>
+                    <p class="qr-panel-note">This QR encodes the same link for this secret.</p>
+                    <div class="qr-panel-code">
+                        <div aria-label="Secret link QR code" data-qr-slot></div>
+                    </div>
+                </section>
+            </div>
+
+            <div data-state="decrypted" hidden>
+                <div class="message-panel">
+                    <div class="message-panel-header">
+                        <span class="status-dot"></span>
+                        Decrypted message
+                    </div>
+                    <div class="message-panel-body" title="Click to copy">
+                        <pre data-decrypted-body></pre>
+                    </div>
+                    <div class="message-panel-footer">
+                        <button class="btn btn-success btn-lg" type="button" data-copy>
+                            <svg data-copy-icon-copy width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                            <svg data-copy-icon-done width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                                <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                            <span data-copy-label>Copy message</span>
+                        </button>
+                    </div>
+                    <p class="views-left-note" data-views-left hidden></p>
+                </div>
+            </div>
+
+            <div data-state="no-message" hidden>
+                <div class="confirm-gate">
+                    <div class="confirm-gate-icon confirm-gate-icon-muted" aria-hidden="true">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                            <circle cx="12" cy="16" r="1"/>
+                        </svg>
+                    </div>
+                    <h2 class="confirm-gate-title">This secret is gone</h2>
+                    <a class="btn btn-primary btn-lg" href="/?reply=0">Create your own secret link</a>
+                </div>
+            </div>
+
+            {/* Shown instead of "gone" when the fragment cannot name a secret at
+                all. The key lives after the #, and chat apps and mail wrappers cut
+                long URLs, so this is a mangled link rather than a consumed one —
+                saying "gone" here is simply wrong and leaves the reader nothing
+                to act on. reply=5 keeps it countable in the access log. */}
+            <div data-state="broken-link" hidden>
+                <div class="confirm-gate">
+                    <div class="confirm-gate-icon confirm-gate-icon-muted" aria-hidden="true">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 17H7A5 5 0 0 1 7 7h2"/>
+                            <path d="M15 7h2a5 5 0 0 1 4 8"/>
+                            <line x1="8" y1="12" x2="12" y2="12"/>
+                            <line x1="2" y1="2" x2="22" y2="22"/>
+                        </svg>
+                    </div>
+                    <h2 class="confirm-gate-title">This link is incomplete</h2>
+                    <p class="confirm-gate-desc">
+                        Go back to the message and copy the whole link.
+                    </p>
+                    <a class="btn btn-primary btn-lg" href="/?reply=5">Create your own secret link</a>
+                </div>
+            </div>
+
+            <div data-state="post-read-cta" hidden>
+                <div class="view-cta">
+                    <div class="view-cta-box">
+                        <p class="view-cta-heading">Reply securely with a one-time link.</p>
+                        <a class="btn btn-primary btn-lg" href="/?reply=4">Reply with an encrypted link →</a>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="view-powered-by">
+            <a href="https://1time.io" target="_blank" rel="noopener noreferrer">
+                Powered by <strong>1time.io</strong>
+            </a>
+            <span class="view-powered-by-tagline">Free, open-source, zero-knowledge encryption. Your secrets are encrypted in the browser — the server never sees them.</span>
+        </div>
+    </div>
+
+    <script>
+        import '../../islands/view-secret.ts';
+    </script>
+</BaseLayout>

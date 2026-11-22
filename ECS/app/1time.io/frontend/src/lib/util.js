@@ -1,0 +1,140 @@
+import {
+    ProtocolConstants,
+    buildSecretLink as buildProtocolSecretLink,
+    decryptSecretMessage,
+    encryptSecretMessage,
+    getRandomString,
+    hashSecretKey,
+} from './protocol.mjs';
+
+const SECONDS_PER_DAY = 86400;
+
+export var Constants = {
+    ...ProtocolConstants,
+    isDebug: import.meta.env.DEV,
+    apiBaseUrl: import.meta.env.PUBLIC_API_URL || '/api/',
+    maxFileSizeBytes: 250 * 1024 * 1024 - 64 * 1024,
+    // Web form preselect only; the API/CLI default stays ProtocolConstants.defaultDuration.
+    defaultDurationSeconds: 3 * SECONDS_PER_DAY,
+};
+
+export const SHARE_DURATION_OPTIONS = [
+    {value: 3600, label: '1 hour'},
+    {value: 86400, label: '1 day'},
+    {value: 259200, label: '3 days'},
+    {value: 604800, label: '7 days'},
+    {value: 2592000, label: '30 days'},
+];
+
+export function formatRemaining(seconds) {
+    const unit = (count, label) => `${count} ${label}${count === 1 ? '' : 's'}`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 1) return 'less than a minute';
+    if (minutes < 60) return unit(minutes, 'minute');
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return unit(hours, 'hour');
+    return unit(Math.round(hours / 24), 'day');
+}
+
+export {decryptSecretMessage, encryptSecretMessage, getRandomString, hashSecretKey};
+
+export function buildSecretLink(randomString, newId) {
+    return buildProtocolSecretLink(window.location.origin, randomString, newId);
+}
+
+export async function createSecretLink(secretMessage, options = {}) {
+    // views: 1 (default, burn after reading) or N > 1 (up to the backend's maxViews).
+    const {secretKey = '', durationSeconds = Constants.defaultDurationSeconds, views = 1} = options;
+
+    if (!secretMessage) {
+        throw new Error('Secret message is required');
+    }
+
+    const randomKey = getRandomString(Constants.randomKeyLen);
+    const fullSecretKey = secretKey + randomKey;
+    // v3 uploads SHA-256(readToken), never the token itself, so the server can
+    // verify a reader without ever holding a value that could read the secret.
+    // Readers are unaffected — they still send the token, exactly as before.
+    const {encryptedMessage, readTokenHash} = await encryptSecretMessage(secretMessage, fullSecretKey);
+
+    const data = await postJson('saveSecret', {
+        secretMessage: encryptedMessage,
+        readTokenHash,
+        v: Constants.saveSchemeVersion,
+        duration: durationSeconds,
+        ...(views !== 1 && {views}),
+    });
+
+    if (data.status !== 'ok' || !data.newId) {
+        throw new Error('Failed to create secret link');
+    }
+
+    // Record to the local secrets list lazily so the store never lands in the shared
+    // util chunk (which every page loads). Fire-and-forget: best-effort, must not
+    // delay showing the link or run on pages that don't create secrets.
+    void import('./mySecrets.js')
+        .then(({recordSecret}) => recordSecret({id: data.newId, kind: 'message', durationSeconds, views}))
+        .catch(() => {});
+
+    return {
+        randomKey,
+        newId: data.newId,
+        link: buildSecretLink(randomKey, data.newId),
+    };
+}
+
+export async function postJson(path, payload) {
+    const response = await fetch(`${Constants.apiBaseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        const error = new Error(`Request failed with status ${response.status}`);
+        error.status = response.status;
+        // Expose the parsed body so callers can distinguish a response our
+        // backend produced from one injected by a proxy/CDN. Only our backend
+        // sends {"status":"retry"}, which is the sole safe signal that a
+        // destructive request did NOT consume anything.
+        error.body = await response.json().catch(() => null);
+        throw error;
+    }
+
+    return response.json();
+}
+
+export async function copyTextToClipboard(text) {
+    if (!text) {
+        return false;
+    }
+
+    if (navigator.clipboard?.writeText) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (error) {}
+    }
+
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', '');
+    textArea.style.position = 'absolute';
+    textArea.style.left = '-9999px';
+
+    const previousFocus = document.activeElement;
+    document.body.appendChild(textArea);
+    textArea.select();
+    textArea.setSelectionRange(0, text.length);
+
+    let copied = false;
+    try {
+        copied = document.execCommand('copy');
+    } catch (error) {}
+
+    document.body.removeChild(textArea);
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({preventScroll: true});
+    return copied;
+}

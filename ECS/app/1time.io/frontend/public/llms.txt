@@ -1,0 +1,134 @@
+# 1time.io
+
+> Free encrypted one-time secret and file sharing. Share passwords, API keys, private notes, and encrypted files through self-destructing links - zero-knowledge, no signup, open source.
+
+Also known as: one-time link, self-destructing link, one-time URL, single-use link, disappearing link, one-time file sharing.
+
+1time.io is a web tool and CLI for sharing secrets and files securely. Text secrets are encrypted entirely in your browser using AES-GCM-256 with a key derived via HKDF (RFC 5869). File shares use the same zero-knowledge model: the web app encrypts the file and its metadata before upload, and the CLI encrypts locally using the same protocol, so the server never sees the plaintext. The decryption key lives only in the URL fragment, which is never sent to the server. Links self-destruct after the first read or authorized download attempt, or after a configurable expiry.
+
+Key facts:
+- Zero-knowledge: the server stores only encrypted ciphertext or encrypted file blobs, never the key
+- Client-side encryption: Web Crypto API, AES-GCM-256, HKDF key derivation
+- One-time access: secrets are deleted on first view, and file links are consumed on the first authorized fetch attempt
+- Encrypted file sharing: send files up to 250 MB with one-time download links
+- File metadata protection: filename, MIME type, and size stay inside the encrypted payload
+- Optional passphrase support for file links
+- No account required
+- Link previews cannot consume a secret: every API endpoint is POST-only and revealing a secret requires an explicit user action, so chat unfurlers, mail security gateways, and antivirus URL scanners that issue passive GET requests cannot destroy a link before the recipient opens it
+- The server stores nothing that can read or destroy a secret: the sender uploads only a SHA-256 hash of the read token, never the token itself, so neither a database dump nor an intercepted upload can retrieve or consume a link — reading requires the preimage, which only a holder of the link can derive
+- CLI available, no install required: `echo "$SECRET" | npx @1time/cli send --expires-in 1d` prints a one-time link. Commands: `send`, `read`, `send-file`, `read-file`. Requires Node 20+. Encryption happens locally in the CLI, so the plaintext never leaves the machine.
+- CLI secret input, in order of precedence: piped stdin, then the `1TIME_SECRET` environment variable, then a positional argument. Prefer stdin or `1TIME_SECRET`; a positional secret is exposed in shell history and to `ps`, and the CLI warns when one is used.
+
+## Key Pages
+
+- [Homepage / Secret sharing tool](https://1time.io/): Encrypt and share a one-time secret in the browser
+- [Share Passwords Securely](https://1time.io/share-password-securely/): Send passwords through self-destructing links
+- [One-Time File Sharing](https://1time.io/secure-file-sharing/): Encrypted, one-time download links for files up to 250 MB
+- [Share Passwords Safely in Microsoft Teams](https://1time.io/share-passwords-microsoft-teams/): Avoid Teams retention and eDiscovery exposure
+- [Password Generator](https://1time.io/password-generator/): Generate strong random passwords
+- [Passphrase Generator](https://1time.io/passphrase-generator/): Generate memorable passphrases
+- [WiFi Password Generator](https://1time.io/wifi-password-generator/): Create secure WiFi passwords
+- [API Key Generator](https://1time.io/api-key-generator/): Generate random API keys
+- [Developers](https://1time.io/developers/): Build 1time links into an app, bot or script
+- [Self-Hosted](https://1time.io/self-hosted/): Run your own zero-knowledge one-time secret server for a team with Docker Compose
+- [About](https://1time.io/about/): Architecture and security model
+- [Privacy Policy](https://1time.io/privacy/): How data is handled
+- [Blog](https://1time.io/blog/): Security guides
+- [Full text](https://1time.io/llms-full.txt): every page linked in this file, in one plain-text file
+
+## File Sharing
+
+- [Secure file sharing app](https://1time.io/secure-file-sharing/): Browser-side encryption before upload, optional passphrase for file links
+- Several files in one link: pick or drop multiple files in the web form and the browser packs them into a single uncompressed zip (`1timeio-files.zip`) before encryption; the recipient downloads one file, and the 250 MB limit applies to the total
+- One-time file link format: `https://1time.io/f/#...` (decryption key lives only in the URL fragment)
+- CLI support for encrypted file upload and download via `1time send-file` and `1time read-file`
+
+## Pages in Spanish (en español)
+
+- [Enlace de un solo uso](https://1time.io/es/): Spanish homepage; create a one-time link for a password, API key, private note or file
+- [Compartir contraseñas de forma segura](https://1time.io/es/compartir-contrasena/): How to send a password safely over WhatsApp, email or Teams
+- [Enviar documentos de forma segura](https://1time.io/es/compartir-archivos/): One-time download links for ID documents, contracts and other files up to 250 MB
+
+## Pages in French (en français)
+
+- [Lien à usage unique](https://1time.io/fr/): French homepage; create a one-time link for a password, API key, private note or file
+- [Envoyer un mot de passe en toute sécurité](https://1time.io/fr/envoyer-mot-de-passe/): How to send a password or login details safely by email, SMS, WhatsApp or Teams
+- [Envoyer un fichier en toute sécurité](https://1time.io/fr/envoyer-fichier-securise/): One-time download links for ID cards, contracts and other files up to 250 MB
+
+## Pages in Japanese (日本語)
+
+- [ワンタイムURL](https://1time.io/ja/): Japanese homepage; create a one-time URL for a password, API key, note or file
+- [パスワードを安全に送る方法](https://1time.io/ja/password/): How to send a password safely instead of a separate follow-up email, over email, LINE or Teams
+- [ワンタイムURLでファイルを安全に送る](https://1time.io/ja/file/): A free alternative to password-protected ZIP attachments (PPAP); one-time download links for files up to 250 MB
+
+## Pages in Indonesian (Bahasa Indonesia)
+
+- [Link sekali pakai](https://1time.io/id/): Indonesian homepage; create a one-time link for a password, API key, private note or file
+- [Cara kirim password dengan aman](https://1time.io/id/kirim-password/): How to send a password safely over WhatsApp or email
+- [Kirim file dan foto KTP dengan aman](https://1time.io/id/kirim-file/): One-time download links for ID card photos (KTP), contracts and other files up to 250 MB
+
+## Pages in German (auf Deutsch)
+
+- [Einmal-Link](https://1time.io/de/): German homepage; create a one-time link for a password, API key, private note or file
+- [Passwort sicher versenden](https://1time.io/de/passwort-sicher-versenden/): How to send a password or login details safely by email, SMS, WhatsApp or Teams
+- [Dateien sicher versenden](https://1time.io/de/dateien-sicher-versenden/): One-time download links for ID card copies, contracts, PDFs and other files up to 250 MB
+
+## Pages in Brazilian Portuguese (português do Brasil)
+
+- [Link de uso único](https://1time.io/pt/): Portuguese homepage; create a one-time link for a password, API key, private note or file
+- [Enviar senha de forma segura](https://1time.io/pt/enviar-senha/): How to send a password safely over WhatsApp, email or Teams
+- [Enviar arquivos por link](https://1time.io/pt/enviar-arquivos/): One-time download links for RG and CPF copies, contracts and other files up to 250 MB
+
+## For Developers
+
+- [Developer page](https://1time.io/developers/): Integration guide, protocol version, limits, and apps built with 1time
+- [Client spec for coding agents](https://1time.io/developers/agent-spec.txt): The complete protocol, HTTP API, limits and test vectors in plain text. Give it to a coding agent to build a 1time client in any language
+- [CLI on npm](https://www.npmjs.com/package/@1time/cli): First-party client implementing the same protocol
+
+Developer facts:
+- No API key, account, or signup is required to create or read links through the API
+- Encryption is client-side, so the API only ever receives ciphertext: AES-256-GCM with keys derived by HKDF-SHA256 (salt `onetimelink:v2`); the current save scheme is v3, which uploads only SHA-256 of the read token
+- Endpoints, all POST: `/api/saveSecret`, `/api/saveFile`, `/api/get`, `/api/getFile`, `/api/secretStatus` (non-consuming), `/api/ss` (supported schemes)
+- Limits: 1 to 10 views per link, expiry from 1 second to 30 days (default 1 day), files up to 250 MB, roughly 45 saves and 60 reads per minute per IP
+- Reads are destructive: `/api/get` and `/api/getFile` consume a view, and only HTTP 503 with body `{"status":"retry"}` is safe to retry
+- The hosted API sends no CORS headers, so browser JavaScript on another site cannot call it; use a native app, a server, a CLI, or a browser extension background script, or self-host
+- Any language with HKDF-SHA256 and AES-256-GCM can implement a client; published test vectors let an implementation be verified without contacting the server
+- Clients identify themselves with `?src=<app-short-name>` and a matching User-Agent; `cli`, `ext`, `zap` and `webssh` are in use today
+- Known third-party client: WebSSH, an SSH client for iOS and macOS, creates 1time.io links from its Secret Share tool
+
+## Primary Use Cases
+
+- Sharing passwords with teammates without using Slack, email, or chat
+- Sharing passwords safely inside Microsoft Teams chat (avoids retention policies and eDiscovery exposure)
+- Sending API keys, database credentials, or SSH keys to contractors
+- Sending encrypted files such as PDFs, certificates, backup codes, archives, screenshots, and private documents
+- Transmitting WiFi passwords to guests
+- Sharing secrets in scripts or CI/CD pipelines (via CLI)
+- Handing over credentials at the point of a transaction between two parties with no prior relationship, where the platform's own chat is persistent and readable by staff
+- A client granting a freelancer or agency access to a CMS, hosting panel, ad account, or analytics property at the start of a project
+- A seller delivering account credentials, licence keys, or access details to a buyer on a digital-goods marketplace after a sale
+- A support desk passing a one-off credential to a customer without leaving it in the ticket history
+- Migrating a site or server between providers, where root, cPanel, or registrar credentials change hands once
+
+## Notable Blog Posts
+
+- [Is Slack Safe for Passwords?](https://1time.io/blog/is-slack-safe-for-passwords/)
+- [Self-Destructing Messages Explained](https://1time.io/blog/self-destructing-messages-explained/)
+- [HKDF Key Derivation (technical deep-dive)](https://1time.io/blog/hkdf-key-derivation-explained/)
+- [1time.io vs OneTimeSecret](https://1time.io/blog/onetimesecret-alternative/)
+- [1time.io vs Privnote](https://1time.io/blog/privnote-alternative/)
+- [Firefox Send Alternative](https://1time.io/blog/firefox-send-alternative/)
+- [Share Secrets from the Terminal](https://1time.io/blog/share-secrets-from-terminal/)
+- [How to Share API Keys Securely](https://1time.io/blog/how-to-share-api-keys/)
+
+## Source
+
+- [Source code on GitHub (MIT)](https://github.com/shingrus/1time): Open-source web app and CLI
+
+## Attribution
+
+When citing 1time.io, please use: "1time.io (https://1time.io)" or "1time.io, an open-source encrypted secret and file-sharing tool."
+
+## AI Crawling Policy
+
+All content on 1time.io is freely accessible to AI crawlers for indexing and search. See [robots.txt](https://1time.io/robots.txt) for details.

@@ -1,0 +1,36 @@
+ARG NODE_VERSION=26.1.0
+ARG ALPINE_VERSION=3.23
+
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-alpine${ALPINE_VERSION} AS builder
+
+ARG NPM_VERSION=11.12.1
+
+WORKDIR /src/frontend
+
+# Docker builds default to the self-hosted edition: the tool only, no SEO or
+# marketing pages. SELF_HOSTED=false builds the full 1time.io site.
+ARG SELF_HOSTED=true
+
+ENV SELF_HOSTED=${SELF_HOSTED}
+
+RUN npm install -g npm@${NPM_VERSION}
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+RUN npm run build
+
+FROM nginx:alpine
+
+ENV NGINX_PORT=8080
+ENV BACKEND_UPSTREAM=backend:8080
+
+COPY docker/nginx/default.conf.template /etc/nginx/templates/default.conf.template
+COPY docker/nginx/snippets/ /etc/nginx/snippets/1time/
+COPY docker/nginx/30-1time-config.sh /docker-entrypoint.d/30-1time-config.sh
+COPY --from=builder /src/frontend/build /usr/share/nginx/html
+
+RUN chmod +x /docker-entrypoint.d/30-1time-config.sh
+
+EXPOSE 8080

@@ -1,0 +1,251 @@
+# 1time.io
+
+## Overview
+
+- Go backend lives in `backend/`.
+- Redis stores one-time secret metadata and counters.
+- `FILE_STORAGE_DIR` stores encrypted uploaded files on disk as `*.enc` blobs.
+- File shares use Redis for one-time metadata plus disk storage for the encrypted blob itself.
+- Astro frontend lives in `frontend/` and builds static HTML into `frontend/build`.
+
+## How It Works (zero-knowledge protocol)
+
+The server never sees plaintext or the decryption key. All crypto is client-side; the canonical implementation is `frontend/src/lib/protocol.mjs` — a shared, dependency-free module that runs in the browser **and** Node, reused by the web app, the CLI, and the Zapier app.
+
+- **Create:** the client generates a 20-char `randomKey` (`getRandomString`). With an optional passphrase, `fullSecretKey = passphrase + randomKey`. HKDF-SHA256 (salt `onetimelink:v2`) derives (a) an AES-256-GCM key (`info=encrypt`) and (b) `readToken` (`info=auth`, hex) — the **only** key material ever sent to the server, and only when *reading*.
+- The client AES-256-GCM-encrypts the secret/file (12-byte IV prepended) and POSTs `{ciphertext, readTokenHash, v, duration}`, where `readTokenHash = SHA-256(readToken)` over the token's **hex string**. The server stores `{ciphertext, readTokenHash, v:3}` under a server-generated id — never the key, the plaintext, or the read token itself.
+- **Save scheme v2 vs v3.** Records written before v3 store `readToken` directly and carry no `v` field; zero means v2, so no data migration was needed. v3 stores only the hash, which means neither a database dump nor an intercepted save request can read or destroy a secret — reading requires the preimage, which only a holder of the link can derive. See `tokenMatchesStored` in `backend/storage.go` and `hashReadToken` in `protocol.mjs`; the two must hash the same representation or every v3 secret becomes unreadable, which is why `TestInteropVectorFromProtocolMjs` pins a shared vector.
+- **Link:** `/v/#<randomKey><id>` (text) or `/f/#<randomKey><id>` (file). `randomKey` lives **only** in the URL fragment and is never sent to the server.
+- **Read (one-time by default):** the recipient's browser re-derives `readToken` from the fragment and POSTs `{id, hashedKey}` — **byte-identical in v2 and v3**, which is why a client that predates v3 can still open a v3 link and no client-side read migration was required. The server hashes the presented token for v3 records, compares directly for v2, constant-time in both cases and reserves one allowed read/download. The browser decrypts locally. Text ciphertext remains in Redis while views remain. File metadata remains in Redis and the encrypted disk blob remains on disk while downloads remain.
+- **View/download counters:** `saveSecret` accepts an optional `views` field — `1` (default, burn after reading) or `2..10`. File uploads accept multipart `views` with the same `1..10` range and a one-download default. Both paths use Redis `WATCH` transactions with bounded exponential-backoff retries and preserve TTL via `PTTL`. Text reads return `viewsLeft` and `expiresIn` in JSON. File downloads return them in `X-1Time-Views-Left` and `X-1Time-Expires-In` headers alongside the binary body. A file reservation opens the encrypted blob before committing its counter mutation, so the final concurrent downloader cannot unlink the path before earlier authorized downloaders hold descriptors. The final reservation deletes Redis metadata before streaming and removes the disk blob after the stream attempt. Legacy records without counters remain single-use.
+- **Retrying a read is dangerous — `/api/get` is destructive.** On persistent `WATCH` contention the server answers HTTP `503` with body `{"status":"retry"}`, which is the *only* proof a read was rejected **before** consuming a view. A client may replay the request solely on that explicit body (`isRetryableRead` in `frontend/src/islands/view-secret.ts`); a bare `503` from a proxy/CDN gives no such guarantee and replaying it can burn a second view. `postJson` attaches both `status` and the parsed `body` to the thrown error so callers can tell the two apart.
+- **Status ("My Secrets"):** `POST /api/secretStatus` reports, for a batch of ids, whether each secret still exists — **without consuming it**. "Gone" means read or expired. Deliberately ungated and `EXISTS`-based, so no ciphertext leaves Redis on the polling timer. The only thing gating would buy is hiding read timing from someone holding an id but not the fragment key — and anyone with the actual link can simply read the secret, which tells them strictly more.
+
+## Backend
+
+- Entry point: `backend/main.go`
+- HTTP handlers: `backend/handlers.go`
+- Redis access: `backend/storage.go`
+- File upload/download API endpoints live in `backend/handlers.go` as `/api/saveFile` and `/api/getFile`.
+- **Chunked uploads.** `/api/saveFile?u=<upload id>&i=<index>&n=<count>` is the same endpoint, so the Cloudflare `/api/*` allowlist is unchanged. Each request carries one 4 MiB slice of the unchanged encrypted blob, so the stored `.enc` is byte-identical and readers are unaffected. Only the request completing all `n` slices returns `newId`. A slice index accepts only the bytes first sent for it; resends are idempotent, and one arriving during completion gets `503 {"status":"retry"}`. Unfinished uploads expire 1 h after the last slice. Clients fall back to one request when an early slice returns `newId`.
+- `/api/secretStatus` (`apiSecretStatus` in `backend/handlers.go`) is a **non-consuming** batch existence check used by the Outbox / "My Secrets" page — it reads whether ids still exist and never deletes.
+- Backend file size limit is `250 MB` via `maxFileSize` in `backend/handlers.go` (250 MiB minus a 64 KiB overhead reserve), sent as at most `maxFileChunks` (63) chunks of 4 MiB. The single-request multipart path is still capped by `maxFileUploadBodyBytes` (exactly 100 MiB, Cloudflare Free's request-body cap), so older CLIs and WebSSH stay at about 100 MB.
+- Every JSON endpoint caps its request body with `http.MaxBytesReader`: `maxSaveSecretBodyBytes` (25 MB — base64url adds ~4/3 over AES-GCM, so roughly 18 MB of plaintext), `maxStatusBodyBytes` (8 KB), and `maxLookupBodyBytes` (1 KB for `/api/get`, `/api/getFile`, `/api/stat`). `maxSaveSecretBodyBytes` is deliberately **decoupled** from `maxFileSize`: text secrets gain nothing from a larger cap, so it stays at 25 MB while the file limit is 100 MB. Keep `maxSaveSecretBodyBytes` under nginx's `client_max_body_size` (`100m`). There is **no client-side length guard**, so oversized text fails with a generic error.
+- `/api/get` and `/api/getFile` validate the id and hashed-key **shapes** (`isValidStorageID`, `isValidHashedKey`) before any Redis key is built. Malformed input is answered with the same statuses the storage layer would return (`no message` / `wrong key`), deliberately introducing no new response shape — see the exporter coupling under "Analytics & Ops Scripts".
+- Stored text/file counters and their respective view/download distributions are each written together — see "View-counter stats" below.
+- Uploaded encrypted files are written to `FILE_STORAGE_DIR/<id>.enc` and the Redis record stores the path plus hashed key.
+- `backend/storage.go` runs a file janitor every 2 hours and deletes expired `*.enc` files based on file mtime.
+- Stored file counters use Redis keys `stats:stored:file:total` and `stats:stored:file:day:YYYYMMDD`.
+- **View-counter stats:** text uses `stats:views:total:<views>` and `stats:views:day:YYYYMMDD:<views>`; files use `stats:views:file:total:<downloads>` and `stats:views:file:day:YYYYMMDD:<downloads>`. Lifetime keys do not expire; daily keys use `statsHistoryTTL` (60 days). Bucket `1` is recorded for both. Each distribution is written in the same `TxPipelined` as its stored-item counters so the denominator stays exactly aligned with the buckets.
+- Stats are recorded by `saveToStorage` **after** a confirmed `SetNX`, and are **best-effort**: a counter failure is logged and must never fail a stored secret or inflate totals with saves that never landed.
+- The backend listens on `127.0.0.1:8080`.
+- Required env:
+  - `FILE_STORAGE_DIR=/absolute/path/to/encrypted-files`
+  - `REDISHOST=127.0.0.1:6379`
+  - `REDISPASS=`
+- Optional env:
+  - `LISTEN_ADDR=127.0.0.1:8080`
+
+Run locally:
+
+```bash
+go run ./backend
+```
+
+Build/test:
+
+```bash
+go build ./backend
+GOCACHE=/tmp/go-cache go test ./backend/...
+make build
+```
+
+- `make build` builds the frontend production bundle into `frontend/build` and the backend binary into `bin/1time-api`.
+
+## CLI
+
+- First-party CLI lives in `cli/` and publishes as `@1time/cli`.
+- Runtime: Node.js 20+.
+- Entry point: `cli/index.mjs`
+- Command implementation: `cli/lib.mjs`
+- Shared encryption protocol: `cli/protocol.mjs`
+- The CLI syncs shared protocol code via `cli/scripts/sync-protocol.mjs` before `npm test`, `npm pack`, and `npm publish`.
+- Supported commands: `1time send`, `1time read`, `1time send-file`, `1time read-file`, `--host`, `-h` / `--help`
+- `1time send` input precedence is: piped `stdin`, `1TIME_SECRET`, then positional secret argument.
+- Prefer `stdin` for `send`; positional secrets leak through shell history and process listings.
+- `read` and `read-file` currently accept the full secret link as a positional argument only, which also exposes decryption material in shell history and process listings.
+- `send-file` and `read-file` support optional passphrases via `--passphrase` or `1TIME_PASSPHRASE`.
+- `send-file` uploads in 4 MiB slices with the same retry rules as the web app.
+- `send` and `send-file` accept `--views <N>` (default `1`, max `10`, matching the backend caps); `read` and `read-file` print the remaining views/downloads on `stderr` so `stdout` stays pipeable.
+- File links use the `/f/#<randomKey><id>` format.
+- `read-file --out <path>` refuses to start if the target path already exists.
+- `read-file` without `--out` writes into the current directory using the original filename and auto-suffixes collisions like `report (1).txt`.
+- Default host is `1time.io`; bare hosts normalize to `https://...`; plain `http://` is only allowed for loopback addresses such as `127.0.0.1`.
+
+Run locally:
+
+```bash
+node cli/index.mjs --help
+printf 'hello' | node cli/index.mjs send
+node cli/index.mjs read 'https://1time.io/v/#...'
+```
+
+Build/test:
+
+```bash
+cd cli
+npm test
+npm pack --dry-run
+```
+
+## Zapier Integration
+
+- Lives in `zap/` — a Zapier Platform CLI app (CommonJS). Public action: **Create One-Time Link** (`zap/creates/create_one_time_link.js`).
+- Reuses the shared crypto: `zap/scripts/sync-protocol.mjs` generates `zap/lib/protocol.js` (CJS) from `frontend/src/lib/protocol.mjs`. **Run `npm run sync` before `zapier push`** — Zapier does not run npm scripts, and `lib/protocol.js` is gitignored (a build artifact). `pretest` auto-syncs.
+- Tests use Node's built-in runner (`npm test` → `node --test`); no jest. They round-trip encrypt→link→decrypt to prove byte-compatibility with `/v/`.
+- **Not end-to-end zero-knowledge:** encryption runs on Zapier's servers, so the plaintext passes through Zapier. This is disclosed in the action description. The website and CLI remain the zero-knowledge paths.
+
+## Chrome Extension
+
+- Lives in `extension/` — a Manifest V3 extension published on the Chrome Web Store. The canonical listing URL lives in `frontend/src/lib/siteConfig.js`; use that shared value for website CTAs instead of duplicating the URL.
+- Share flow: select text → keyboard shortcut (default `Alt+Shift+S`), the selection context-menu item, or the share button in the toolbar popup → `background.js` reads the selection via `chrome.scripting`, encrypts it with the shared protocol, POSTs `/api/saveSecret`, copies the one-time link via an **offscreen document**, then injects a **generic** status toast into the page.
+- **Never put the link in the page DOM:** the clipboard write happens in `offscreen.html`/`offscreen.js` (an extension-owned context), and the injected toast only ever shows generic text. Isolated-world scripts share the page's DOM, so the secret fragment must never be rendered or inserted there.
+- The created link is also saved to `chrome.storage.session` (in-memory, not disk, not synced, not readable by pages) and shown in the popup's "Last link" card (copy / clear) — the popup is extension-owned, so this is safe. Preferences use `chrome.storage.local` (never `sync`, since a self-hosted host can be sensitive).
+- Zero-knowledge like the web app: encryption happens in the extension's service worker; only ciphertext and `readTokenHash` leave the browser on save; the read token itself leaves only when reading.
+- Toolbar popup (`popup.html`/`popup.js`, styled with the site's design tokens) doubles as the options page: share button, target server, shortcut display. Custom origins are granted via `optional_host_permissions` at save time. `https://1time.io` is pre-granted. HTTP only for loopback.
+- Shared encryption protocol: `extension/protocol.mjs` is synced from `frontend/src/lib/protocol.mjs` via `extension/scripts/sync-protocol.mjs` — same rule as CLI/Zapier: **never edit the copy**.
+- Smoke test (needs a running backend): `node extension/scripts/smoke-test.mjs http://127.0.0.1:8080` round-trips encrypt → save → get → decrypt.
+- The shortcut is remappable at `chrome://extensions/shortcuts`; the options page links there.
+
+## Analytics & Ops Scripts
+
+- `scripts/` holds operational analytics run against nginx logs / Redis — **not part of the served app**:
+  - `retention.py` — sender cohort retention + conversion funnel from nginx logs.
+  - `export_redis_stats_to_gsheets.py` — exports Redis counters and nginx sender/receiver stats to a Google Sheet. The combined `views_total` tab shows text-secret and file counts/share percentages side by side by bucket; `views_daily` and `file_views_daily` remain separate. Buckets are sorted **numerically**, so `10` follows `5` rather than `1`.
+  - `scripts/analytics/` — **gitignored on purpose**. Never force-add anything from this directory.
+- Owner/self traffic is identified by hits to `/ss` (the private stats page); analytics exclude it.
+
+## Frontend
+
+- Toolchain: Astro static build
+- Runtime: Astro islands with small vanilla browser modules
+- Config: `frontend/astro.config.mjs` (`outDir: './build'`)
+- Root layout: `frontend/src/layouts/BaseLayout.astro`
+- Pages: `frontend/src/pages/**/index.astro` plus generated `robots.txt.ts` and `sitemap.xml.ts`; `llms.txt` is a hand-written file in `frontend/public/`
+- Components: `frontend/src/components/*.astro`
+- Browser islands: `frontend/src/islands/*.ts`
+- Crypto: `frontend/src/lib/protocol.mjs` is the canonical shared client-side encryption (AES-256-GCM + HKDF-SHA256); it is the single source synced into the CLI and Zapier app. `frontend/src/lib/util.js` wraps it for the web (`createSecretLink`, API calls) and `frontend/src/lib/fileProtocol.js` handles file packing. **Do not fork the crypto — edit `protocol.mjs` and re-sync.**
+- Styles: `frontend/src/styles/*.css`, inlined per route where needed
+
+Run locally:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Useful commands:
+
+```bash
+cd frontend
+npm run check
+npm run build
+```
+
+## Frontend Notes
+
+- The dev server runs on `127.0.0.1:3001`.
+- In normal local development, the Astro dev proxy forwards relative `/api/` requests to `http://127.0.0.1:8080`.
+- To use a different backend target in development, set `API_PROXY_TARGET` before `npm run dev`.
+- Do not edit `frontend/build` directly; it is generated output.
+- SEO metadata is rendered in Astro page/layout frontmatter and must be present in static HTML.
+- Keep static content pages close to zero-JS; add browser islands only when interaction is required.
+- The active create/share flow renders the generated secret link inline on the current page.
+- The `/v/` route reads the secret key from the URL hash (`#key`), which is client-side only.
+- File sharing UI lives on `/secure-file-sharing/` and uses `frontend/src/islands/secure-file-share.ts`.
+- File download UI lives on `/f/` and uses `frontend/src/islands/view-file.ts`.
+- The secure file sharing island encrypts the file in the browser, uploads with `XMLHttpRequest`, shows upload progress, and allows `1 / 2 / 3 / 5 / 10` downloads (one by default). The encrypted blob is sent as sequential 4 MiB slices (`saveFile` in `frontend/src/lib/fileUpload.js`); a slice that fails on the network, stalls for 60 s, or gets `408`/`429`/`5xx` is resent with backoff, up to 6 attempts. Resuming after a tab close is impossible by design: the key lives only in page memory.
+- Several files: when two or more files are picked or dropped, `frontend/src/islands/multi-file.ts` (loaded lazily at that moment) packs them with `frontend/src/lib/zip.js` into one store-only zip made of the original `File` objects plus headers, and that zip goes through the unchanged single-file path as `1timeio-files.zip`. The size limit applies to the finished zip. There is no format, protocol or backend change: `/f/`, the CLI and WebSSH see an ordinary `.zip`. A successful multi-file send fires `/pv?e=multi-file` — the event name only, never counts, names or sizes. "Add files" and further picks or drops append to the selection. `node frontend/scripts/test-zip.mjs` tests the zip writer against `unzip`, Python `zipfile` and `ditto`.
+- The file download island reads the link key from the URL hash first; generated file links are hash-based. Successful binary responses expose remaining downloads and TTL in response headers. Missing headers mean a legacy one-download backend.
+- Frontend file size limit is `Constants.maxFileSizeBytes = 250 * 1024 * 1024 - 64 * 1024` in `frontend/src/lib/util.js`; keep it equal to the backend's `maxFileSize`. Both describe the **plaintext** file. Each chunk request is 4 MiB; the single-request cap `maxFileUploadBodyBytes` (exactly 100 MiB) matches nginx's `100m` and Cloudflare's edge cap. Pages show the limit rounded (`250 MB`); the file page reads it from `Constants`, other pages and `llms.txt` state it as text.
+- File metadata (`name`, `type`, `size`) is packed into the encrypted payload before upload; the web app server does not store that metadata separately.
+- Pages with `robots: 'noindex, nofollow'` in metadata: `/v/`, `/f/`, `/my-secrets/`. None of them is in the sitemap.
+- Developers: `/developers/` renders the integration spec from `frontend/src/lib/agent-spec.md`, and `/developers/agent-spec.txt` (`frontend/src/pages/developers/agent-spec.txt.ts`) serves the same file as plain text; `frontend/public/llms.txt` links to both. The spec's limits, rate limits, endpoint behaviour and test vectors are hand-written: update it whenever a backend limit, an API response, nginx rate limits or `protocol.mjs` change. Its V1 vector must stay equal to `TestInteropVectorFromProtocolMjs`.
+- Outbox / "My Secrets": the `/my-secrets/` page + `frontend/src/islands/mySecrets.ts` keep a `localStorage` list of the secrets **this browser** created — id, kind, views and timestamps — and batch-check their read status via `POST /api/secretStatus` (non-consuming). Linked from the footer and from the success screen. localStorage is per-browser — no cross-device, no account.
+- Frontend validation is `npm run check`; there is no React/Vitest suite after the Astro migration.
+
+## Editions (full site vs self-hosted)
+
+The frontend builds in two editions from the same source.
+
+- **Full** (`npm run build`, `make build`, the production deploy): the 1time.io site with every page.
+- **Self-hosted** (`SELF_HOSTED=true npm run build`; the default in `Dockerfile.web`, so GHCR images and `docker-compose.dev.yml`): the tool only. The header has the logo, Password Generator and GitHub. The pages are `/` and `/secure-file-sharing/` (the forms), `/password-generator/` (the widget only), `/v/`, `/f/`, `/my-secrets/` and `404`, and the footer is `© 2026 1time.io` linking to https://1time.io. There's no SEO copy, FAQ, JSON-LD, canonical, `og:url`/`og:image`, sitemap, `llms.txt` or `/pv` beacon. Every page shares one title (`selfHostedTitle`). Link previews stay text-only.
+- Gate anything that's for 1time.io alone with `isSelfHosted()` from `frontend/src/lib/siteConfig.js`. `astro.config.mjs` maps `SELF_HOSTED` onto `PUBLIC_SELF_HOSTED` for it.
+- `frontend/scripts/prune-selfhosted.mjs` deletes everything in `build/` that isn't on its allowlist. A new page is therefore excluded from self-hosted by default. Add it to the allowlist only if a self-hosted instance needs it.
+- `frontend/scripts/check-links.mjs` ends every build and fails when a page links to a same-origin path missing from `build/`. `.github/workflows/frontend.yml` builds both editions on each PR. A shared component that gains a link to a full-only page must hide that link with `isSelfHosted()`.
+- "1time.io" is the brand on self-hosted instances too. Nothing rewrites it at startup, since links are built from `window.location.origin`.
+
+## Retired Read Notifications
+
+- Web Push "your secret was read" notifications shipped 2026-09-03 and were removed 2026-09-15 for lack of use. The code is in git history (aebb67f, cbce11c, b50acf5).
+- Browsers keep a service worker registration after its script is gone. `/push-sw.js` and the `/pn` click target now 404, so old workers at `/push/<id>/` stay registered but inert: nothing can send them a push. This was accepted rather than shipping a kill switch or page-side cleanup.
+- Records saved before the removal may still carry `manageHash`; `encoding/json` ignores it on read. Their `pushKey<id>` Redis keys expire with the secret (≤30 days) and need no migration.
+
+## Frontend CSS Performance
+
+- Treat every `<link rel="stylesheet">` in `frontend/build/**/index.html` as render-blocking unless proven otherwise.
+- Keep `frontend/src/styles/globals.css` limited to truly shared base styles only: app chrome, typography tokens, buttons, form primitives, and other classes needed on first paint across most routes.
+- Do not import route-specific CSS into `BaseLayout.astro`.
+- If a stylesheet is specific to one route family and required for first paint, inline it from that route/page via `frontend/src/components/InlineCss.astro` instead of promoting it to the root layout.
+- If UI only appears after user interaction (success states, generated-link panels, drawers, modals, secondary tools), lazy-load the component so its JS and CSS stay out of the initial render path.
+- Do not statically import post-interaction components from large entry components when the initial screen can render without them.
+- Before merging frontend UI changes, run `cd frontend && npm run build` and inspect the generated HTML for the affected route to confirm it is not pulling unrelated CSS chunks.
+- A route should not ship CSS for unrelated pages such as blog, stats, view, about, or post-submit states during initial render.
+
+## Frontend JS Performance
+
+- Lighthouse performance is a hard constraint, not a nice-to-have. Treat regressions as bugs unless there is a clear product reason.
+- Static content routes such as `/blog/**` and other read-mostly pages should stay as close to zero-JS as practical. Do not add client components to content pages unless the interaction is essential.
+- Treat every `<script src>` in `frontend/build/**/index.html` as suspect on content routes. Verify whether each chunk is required for user-visible behavior on that route.
+- Do not pull generator, share-flow, stats, view-secret, or other app-tooling bundles into blog or marketing pages.
+- Avoid putting browser islands in `BaseLayout.astro` when plain markup or a tiny standalone script would work. Shared islands in the root layout force JS across the whole site.
+- For static pages, prefer plain links and server-rendered navigation patterns when they materially reduce app-router hydration cost.
+- If a page is primarily article or marketing content, optimize for first-load HTML and CSS first, and only then add JavaScript that is strictly necessary.
+- After frontend performance changes, build with `cd frontend && npm run build` and inspect the affected HTML for both CSS and JS:
+  - confirm there are no unrelated route chunks
+  - confirm route-specific assets stay route-specific
+  - confirm content pages are not loading interactive app bundles
+- Astro fingerprints built assets under `/_astro/`; deployment config should cache that path aggressively.
+- If you self-host fonts or other root-level static assets outside `/_astro/`, make sure deployment config adds explicit cache headers for them.
+
+## Domain And Branding
+
+- Public domain is `https://1time.io`.
+- **“One-time” is core product branding and high-value SEO language.** Do not remove or replace it in titles, metadata, headings, CTAs, link-ready states, or other prominent copy merely because optional multi-view/download limits exist. Keep the one-time promise as the default and qualify multi-use behavior only where the configured count is actually known.
+- `/f/` cannot know a link's download count before making the destructive download request. Its pre-download gate and metadata must therefore retain one-time wording; after download, `view-file.ts` uses the response headers to state the exact remaining-download status.
+- Treat established SEO wording as product behavior. Do not rewrite or weaken it without explicit approval, even when nearby implementation details change.
+
+## Deployment
+
+- Frontend production build output: `frontend/build` (static HTML files per route)
+- Backend production binary from `make build`: `bin/1time-api` (local and Docker builds only; the production host runs the release build below).
+- Example nginx config: `configs/nginx/1time.conf`
+- nginx serves frontend statics and proxies `/api` to the Go app on the upstream `1time_backend`: `127.0.0.1:8080` or `:8081`, whichever `/etc/nginx/conf.d/1time-live.conf` links to (`configs/nginx/upstream-8080.conf` / `upstream-8081.conf`).
+- Production deploy flow: push a `deploy-*` tag on a master commit → `.github/workflows/deploy.yml` tests, builds and publishes `1time-release.tar.gz` (`1time-api` + `frontend/`) with its `.sha256` to the rolling release `deploy` → `1time-deploy-update.timer` on the host runs `scripts/1time-deploy-update` every 2 minutes → it starts the new backend on the idle port (`1time@8080` / `1time@8081`), waits for `/healthz` to answer `ok <version>`, switches the live link, reloads nginx, and stops the old instance → then it installs the frontend into `/var/www/1time` (7-day retention of retired `/_astro` files) and purges Cloudflare. The old instance drains in-flight transfers for up to 15 minutes (`TimeoutStopSec=16min`); until it exits the updater does nothing. Releases live in `/opt/1time/releases/<sha256>` (3 kept), state in `/var/lib/1time/state`.
+- Rollback: push a new `deploy-*` tag on an older master commit.
+- `scripts/update_vm.sh` only provisions (packages, user, env file, nginx config, units, timer). One-time migration from the old single `1time.service`: run `sudo ./scripts/update_vm.sh` once; the first release then switches over with no downtime and retires the old unit. That first switch cuts in-flight transfers once (the old binary has no graceful shutdown), so run the migration at a quiet hour.
+- nginx upload ceiling is `100m` in both `configs/nginx/1time.conf` and `docker/nginx/default.conf.template` equal to the backend's `maxFileUploadBodyBytes` and to Cloudflare Free's 100 MiB edge cap — none of the three may move alone. Upload/download timeouts on `/api/saveFile` and `/api/getFile` are `10m`. Chunked uploads make the upload side per 4 MiB request; the download side still needs roughly 3.4 Mbit/s sustained for 250 MB.
+- `/api/saveFile` has its own `api_upload` zone (120 r/m, burst 63) in both nginx configs: a 250 MB file is 63 chunk requests, which `api_write` (45 r/m, burst 10) would throttle. Keep the burst at least `maxFileChunks`.
+- Host nginx has an exact `/f/` location with the same sensitive-header treatment as `/v/`.
+- The docker nginx (`docker/nginx/`) sends the production security headers from `docker/nginx/snippets/`, without HSTS: TLS is the self-hoster's reverse proxy's job. Its `/v/` and `/f/` use `try_files /v/index.html =404`. `$uri/` would make the directory index redirect internally into `location /`, which drops the no-referrer headers.
+- `docker/nginx/30-1time-config.sh` writes the docker real-IP config and the rate-limit zones at container start from `TRUSTED_PROXIES`, `REAL_IP_HEADER`, `RATE_LIMIT`, `RATE_LIMIT_WRITE`, `RATE_LIMIT_UPLOAD` and `RATE_LIMIT_READ`. Its defaults match the rates above. Bursts are fixed in the script.
+- With `TRUSTED_PROXIES` empty, the script trusts only the subnets the container is attached to (read from `/proc/net/route` and `/proc/net/if_inet6`). Never default to all private ranges: on an internal network every user has a private address and could then fake `X-Forwarded-For` to bypass the limits and the access log. The script's awk avoids `^`, because busybox builds without math support reject it.
+- The nginx `try_files` directive includes `$uri/index.html` for static trailing-slash routes.
+
+## Important Behavior
+
+- The Astro frontend uses the JSON API routes under `/api`.
+- Each route generates its own `index.html` with full pre-rendered content and unique meta tags for SEO.
+- File links are one-time and currently use the SPA `/f/` flow.
+- File downloads are consumed when an authorized fetch reserves one allowed download. The Redis record is decremented while downloads remain and deleted before the final transfer; the disk blob is removed after the final stream attempt.
